@@ -1,31 +1,24 @@
 #!/usr/bin/env node
-// session-monitor v9 — main entry point
+// session-monitor v12 — clean rewrite
 const fs = require('fs');
 const path = require('path');
-const { sendNew, editLast, resetTracking } = require('./sender');
+const { pushUpdate, freezeMessage } = require('./sender');
 const { DIR, loadKeys, getTag } = require('./sessions');
 const { parse } = require('./parser');
 const { buildMessage } = require('./formatter');
 
-// ── Configuration ────────────────────────────────
-const POLL = 3000;            // poll interval (ms)
-const MERGE_WINDOW = 1;       // merge edits within N minutes into one message
-const NEW_MSG_THRESHOLD = 3000; // start new message if current exceeds this many chars
-// ─────────────────────────────────────────────────
+const POLL = 3000;
+const MERGE_WINDOW = 1;
+const MAX_MSG_LEN = 3500;
 
 const sizes = new Map();
-
-// ── Time-window accumulator ──────────────────────
 let currentWindow = null;
 let accGroups = new Map();
 let hasSentInWindow = false;
 
 function getWindowKey() {
   const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const slot = String(Math.floor(d.getMinutes() / MERGE_WINDOW));
-  return `${dd}${hh}s${slot}`;
+  return `${d.getDate()}h${d.getHours()}s${Math.floor(d.getMinutes() / MERGE_WINDOW)}`;
 }
 
 function poll() {
@@ -39,8 +32,8 @@ function poll() {
       let size;
       try { size = fs.statSync(fp).size; } catch { continue; }
       if (!prev) { sizes.set(fp, size); continue; }
-      if (size < prev) { sizes.set(fp, size); continue; } // file was compacted/rewritten
-      if (size === prev) continue;
+      if (size <= prev) { sizes.set(fp, size); continue; }
+
       try {
         const fd = fs.openSync(fp, 'r');
         const buf = Buffer.alloc(size - prev);
@@ -66,10 +59,10 @@ function poll() {
 
     const window = getWindowKey();
     if (window !== currentWindow) {
+      if (hasSentInWindow) freezeMessage();
       currentWindow = window;
       accGroups = new Map();
       hasSentInWindow = false;
-      resetTracking();
     }
 
     for (const [tag, entries] of newEntries) {
@@ -80,33 +73,35 @@ function poll() {
     const msg = buildMessage(accGroups);
     if (!msg) return;
 
-    // If message is too large, freeze old message and start fresh with new entries only
-    if (hasSentInWindow && msg.length > NEW_MSG_THRESHOLD) {
-      accGroups = new Map(newEntries);
+    if (hasSentInWindow && msg.length > MAX_MSG_LEN) {
+      freezeMessage();
+      accGroups = new Map();
+      hasSentInWindow = false;
+      for (const [tag, entries] of newEntries) {
+        accGroups.set(tag, [...entries]);
+      }
       const freshMsg = buildMessage(accGroups);
-      if (freshMsg) sendNew(freshMsg.length > 3950 ? freshMsg.slice(0, 3950) + '\n…' : freshMsg);
-      hasSentInWindow = true;
-    } else if (hasSentInWindow) {
-      editLast(msg);
+      if (freshMsg) {
+        pushUpdate(freshMsg, true);
+        hasSentInWindow = true;
+      }
     } else {
-      sendNew(msg);
+      pushUpdate(msg, !hasSentInWindow);
       hasSentInWindow = true;
     }
   } catch (e) { console.error('[poll]', e.message); }
 }
 
-// ── PID file ─────────────────────────────────────
+// PID file
 const PID_FILE = path.join(__dirname, '.pid');
 fs.writeFileSync(PID_FILE, String(process.pid));
 process.on('exit', () => { try { fs.unlinkSync(PID_FILE); } catch {} });
 process.on('SIGINT', () => process.exit());
 process.on('SIGTERM', () => process.exit());
 
-// ── Start ────────────────────────────────────────
+// Start
 loadKeys();
-setInterval(loadKeys, POLL * 5);  // refresh session keys every 5 poll cycles
+setInterval(loadKeys, POLL * 5);
 poll();
 setInterval(poll, POLL);
-
-// startup banner
-sendNew('🖥️ <b>Monitor</b> (poll: ' + (POLL/1000) + 's, merge: ' + MERGE_WINDOW + 'min, split: ' + NEW_MSG_THRESHOLD + ')');
+pushUpdate('\u{1F5A5}\uFE0F <b>Monitor v12</b> started', true);
