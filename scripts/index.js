@@ -12,6 +12,7 @@ const MERGE_WINDOW = 1;
 const MAX_MSG_LEN = 3500;
 
 const sizes = new Map();
+const sessionMeta = new Map();  // sid → { thinkingLevel }
 let currentWindow = null;
 let accGroups = new Map();
 let hasSentInWindow = false;
@@ -31,7 +32,27 @@ function poll() {
       const prev = sizes.get(fp) || 0;
       let size;
       try { size = fs.statSync(fp).size; } catch { continue; }
-      if (!prev) { sizes.set(fp, size); continue; }
+      if (!prev) {
+        // First sighting: harvest head for thinking_level_change, then skip history
+        try {
+          const head = Buffer.alloc(Math.min(size, 4096));
+          const fd = fs.openSync(fp, 'r');
+          fs.readSync(fd, head, 0, head.length, 0);
+          fs.closeSync(fd);
+          const sid = path.basename(fp, '.jsonl');
+          for (const raw of head.toString('utf8').split('\n')) {
+            if (!raw.trim()) continue;
+            try {
+              const d = JSON.parse(raw);
+              if (d.type === 'thinking_level_change' && d.thinkingLevel) {
+                sessionMeta.set(sid, { thinkingLevel: d.thinkingLevel });
+              }
+            } catch {}
+          }
+        } catch {}
+        sizes.set(fp, size);
+        continue;
+      }
       if (size <= prev) { sizes.set(fp, size); continue; }
 
       try {
@@ -45,8 +66,14 @@ function poll() {
         for (const raw of buf.toString('utf8').split('\n')) {
           if (!raw.trim()) continue;
           try {
-            const e = parse(JSON.parse(raw));
+            const d = JSON.parse(raw);
+            if (d.type === 'thinking_level_change' && d.thinkingLevel) {
+              sessionMeta.set(sid, { thinkingLevel: d.thinkingLevel });
+            }
+            const e = parse(d);
             if (e) {
+              const meta = sessionMeta.get(sid);
+              if (meta && meta.thinkingLevel) e.thinkingLevel = meta.thinkingLevel;
               if (!newEntries.has(tag)) newEntries.set(tag, []);
               newEntries.get(tag).push(e);
             }
