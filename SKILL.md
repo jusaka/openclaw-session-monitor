@@ -47,8 +47,9 @@ fi
 |----------|----------|-------------|
 | `BOT_TOKEN` | ✅ | Telegram bot token for sending updates |
 | `CHAT_ID` | ✅ | Target Telegram chat ID (group or DM) |
-| `AGENT_NAME` | ✅ | Display name of monitored agent (e.g. `MyAgent`) |
-| `SESSIONS_DIR` | ❌ | Session JSONL directory (default: `~/.openclaw/agents/main/sessions`) |
+| `AGENTS` | ❌ | Multi-agent: `Name\|/path/to/sessions,Name2\|/path2` |
+| `AGENT_NAME` | ❌ | Single-agent display name (fallback when `AGENTS` unset) |
+| `SESSIONS_DIR` | ❌ | Single-agent session dir (default: `~/.openclaw/agents/main/sessions`) |
 | `DIRECT_USERS` | ❌ | Direct chat mappings: `userId:Name,userId2:Name2` |
 | `GROUPS` | ❌ | Group chat mappings: `groupId:Name,groupId2:Name2` |
 

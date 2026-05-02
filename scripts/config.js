@@ -1,4 +1,4 @@
-// config.js — Load configuration from .env file
+// config.js — Load configuration from .env file (multi-agent support)
 const fs = require('fs');
 const path = require('path');
 
@@ -22,8 +22,6 @@ loadEnv();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const CHAT_ID = process.env.CHAT_ID || '';
-const AGENT_NAME = process.env.AGENT_NAME || 'Agent';
-const SESSIONS_DIR = process.env.SESSIONS_DIR || path.join(process.env.HOME, '.openclaw/agents/main/sessions');
 
 // Parse "id:name,id:name" format
 function parseMap(str) {
@@ -39,18 +37,38 @@ function parseMap(str) {
   return map;
 }
 
-// Build DIRECT_NAMES: "direct:userId" → "AgentName↔UserName"
+// Multi-agent: parse AGENTS env "name|dir,name|dir"
+// Fallback to legacy AGENT_NAME + SESSIONS_DIR
+function parseAgents() {
+  const raw = process.env.AGENTS || '';
+  if (raw) {
+    return raw.split(',').map(entry => {
+      const [name, dir] = entry.split('|').map(s => s.trim());
+      return { name, dir };
+    }).filter(a => a.name && a.dir);
+  }
+  // Legacy single-agent
+  const name = process.env.AGENT_NAME || 'Agent';
+  const dir = process.env.SESSIONS_DIR || path.join(process.env.HOME, '.openclaw/agents/main/sessions');
+  return [{ name, dir }];
+}
+
+const AGENTS = parseAgents();
+
 const directUsers = parseMap(process.env.DIRECT_USERS || '');
-const DIRECT_NAMES = {};
-for (const [id, name] of Object.entries(directUsers)) {
-  DIRECT_NAMES[`direct:${id}`] = `${AGENT_NAME}↔${name}`;
-}
-
-// Build GROUP_NAMES: "group:groupId" → "GroupName"
 const groups = parseMap(process.env.GROUPS || '');
-const GROUP_NAMES = {};
-for (const [id, name] of Object.entries(groups)) {
-  GROUP_NAMES[`group:${id}`] = name;
+
+// Build name maps per-agent (keyed by agent name for tag prefixing)
+function buildNameMaps(agentName) {
+  const DIRECT_NAMES = {};
+  for (const [id, name] of Object.entries(directUsers)) {
+    DIRECT_NAMES[`direct:${id}`] = `${agentName}↔${name}`;
+  }
+  const GROUP_NAMES = {};
+  for (const [id, name] of Object.entries(groups)) {
+    GROUP_NAMES[`group:${id}`] = name;
+  }
+  return { DIRECT_NAMES, GROUP_NAMES };
 }
 
-module.exports = { BOT_TOKEN, CHAT_ID, AGENT_NAME, SESSIONS_DIR, DIRECT_NAMES, GROUP_NAMES };
+module.exports = { BOT_TOKEN, CHAT_ID, AGENTS, buildNameMaps, parseMap };

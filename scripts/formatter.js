@@ -41,20 +41,14 @@ function buildMessage(groups) {
 
   const parts = [];
   for (const [tag, entries] of sorted) {
-    // find last model & thinking level used in this session
+    // find last model used in this session
     let model = null;
-    let thinking = null;
     for (let i = entries.length - 1; i >= 0; i--) {
-      if (!model && entries[i].model) model = entries[i].model;
-      if (!thinking && entries[i].thinkingLevel) thinking = entries[i].thinkingLevel;
-      if (model && thinking) break;
+      if (entries[i].model) { model = entries[i].model; break; }
     }
     const merged = mergeMessages(entries);
     const body = merged.join('\n');
-    let suffix = '';
-    if (model) suffix += ` <i>${model}</i>`;
-    if (thinking) suffix += ` <i>·${thinking}</i>`;
-    const header = `<b>${tag}</b>${suffix}`;
+    const header = model ? `<b>${tag}</b> <i>${model}</i>` : `<b>${tag}</b>`;
     parts.push(`<blockquote expandable>${header}\n${body}</blockquote>`);
   }
   let msg = parts.join('\n');
